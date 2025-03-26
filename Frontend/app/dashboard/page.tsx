@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Building2, FileSpreadsheet, ChevronLeft, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
 import {
   Table,
@@ -11,158 +11,533 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useDispatch, useSelector } from 'react-redux';
-import { clearUser } from '../store/slices/userSlice';
-import type { RootState } from '../store/store';
-import { useEffect, useState } from 'react';
+import Spinner from "@/components/ui/spin";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { getCookie } from "@/app/utils/cookies";
+import { Search, History, Terminal, Download, Filter, AlertTriangle, AlertCircle, Info, Bug, XCircle } from "lucide-react";
+import { Header } from "@/components/ui/header";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { getCookie } from "../utils/cookies";
+import { useAppContext, Workspace } from "../context";
 
-type Workspace = {
-  id: string; 
-  name: string;
+interface Log {
+  id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+  source: string;
+  details: Object;
 };
 
-export default function Dashboard() {
-  const router = useRouter();
-  const dispatch = useDispatch();
-  const user = useSelector((state: RootState) => state.user);
+// Mock data for audit trail
+const generateAuditTrail = () => Array.from({ length: 50 }, (_, i) => {
+  const date = new Date();
+  date.setHours(date.getHours() - i);
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
+  const actions = [
+    "Created new board",
+    "Updated board settings",
+    "Deleted board",
+    "Added user to workspace",
+    "Removed user from workspace",
+    "Updated workspace settings",
+    "Generated PDF document",
+    "Updated business configuration",
+    "Connected to Xero",
+    "Updated integration settings"
+  ];
 
+  const users = [
+    "john.doe@example.com",
+    "jane.smith@example.com",
+    "mike.wilson@example.com",
+    "sarah.johnson@example.com"
+  ];
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-
-  const totalPages = Math.ceil(workspaces.length / itemsPerPage);
-
-  useEffect(() => {
-    const getWorkSpaces = async () => {
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/workspaces/`, { headers: { token: getCookie("token") } });
-      setWorkspaces(response.data);
-    }
-    getWorkSpaces();
-  }, [currentPage, itemsPerPage])
-
-  const handleLogout = () => {
-    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-    dispatch(clearUser());
-    router.push('/');
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+  return {
+    id: `audit - ${i + 1} `,
+    timestamp: date.toISOString(),
+    action: actions[Math.floor(Math.random() * actions.length)],
+    user: users[Math.floor(Math.random() * users.length)],
+    ipAddress: `192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)} `,
+    details: {
+      resourceId: `resource - ${Math.floor(Math.random() * 1000)} `,
+      changes: Math.random() > 0.5 ? { before: "old value", after: "new value" } : null
     }
   };
+});
 
-  const handleItemsPerPageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setItemsPerPage(Number(event.target.value));
-  };
+type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
 
-  const displayedWorkspaces = workspaces.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+const LOG_LEVEL_COLORS: Record<LogLevel, string> = {
+  DEBUG: 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/20',
+  INFO: 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-900/20',
+  WARN: 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-900/20',
+  ERROR: 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/20',
+  FATAL: 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-purple-900/20'
+};
 
+const LOG_LEVEL_ICONS: Record<LogLevel, React.ReactNode> = {
+  DEBUG: <Bug className="h-4 w-4" />,
+  INFO: <Info className="h-4 w-4" />,
+  WARN: <AlertTriangle className="h-4 w-4" />,
+  ERROR: <AlertCircle className="h-4 w-4" />,
+  FATAL: <XCircle className="h-4 w-4" />
+};
+
+function WorkspacesList({
+  isLoading,
+  filteredWorkspaces,
+  searchQuery,
+  setSearchQuery,
+  router
+}: {
+  isLoading: boolean,
+  filteredWorkspaces: Workspace[],
+  searchQuery: string,
+  setSearchQuery: (query: string) => void,
+  router: ReturnType<typeof useRouter>
+}) {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 space-y-8">
-
-        <div className="bg-card rounded-lg p-6 shadow-sm flex justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
-              <span className="text-2xl font-semibold">
-                {user.name && user.name.trim() !== '' 
-                  ? user.name.split(' ').map(n => n[0]).join('') 
-                  : 'N/A'}
-              </span>
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">{user.name}</h2>
-              <p className="text-muted-foreground">{user.email}</p>
-            </div>
-          </div>
-          <div>
-            <button
-              onClick={handleLogout}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium"
-            >
-              Logout
-            </button>
-          </div>
+    <Card className="p-6 shadow-sm">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-semibold">Your Workspaces</h3>
+        <div className="relative w-72">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search by workspace ID or name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
         </div>
+      </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
-          <Button
-            size="lg"
-            className="flex items-center gap-2"
-            onClick={() => router.push("/configure-business")}
-          >
-            <Building2 className="h-5 w-5" />
-            Configure My Business
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            className="flex items-center gap-2"
-            onClick={() => router.push("/xero-integration")}
-          >
-            <FileSpreadsheet className="h-5 w-5" />
-            Setup Xero Integration
-          </Button>
+      {isLoading ?
+        <div className="text-center py-8 text-muted-foreground">
+          Loading workspaces...
+          <Spinner />
         </div>
-
-        <div className="bg-card rounded-lg p-6 shadow-sm">
-          <h3 className="text-xl font-semibold mb-4">Your Workspaces</h3>
+        :
+        <>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Workspace ID</TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {displayedWorkspaces.length > 0 ? (
-                displayedWorkspaces.map((workspace) => (
-                  <TableRow key={workspace.id}>
-                    <TableCell className="font-mono">{workspace.id}</TableCell>
-                    <TableCell>{workspace.name}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={2} className="text-center">No workspaces available.</TableCell>
+              {filteredWorkspaces.map((workspace) => (
+                <TableRow key={workspace.id}>
+                  <TableCell className="font-mono">{workspace.id}</TableCell>
+                  <TableCell>{workspace.name}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/workspace/${workspace.id} `)}
+                    >
+                      Open Workspace
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              )}
+              ))}
             </TableBody>
           </Table>
-          <div className="flex justify-between items-center">
-            <div className="flex flex-col sm:flex-row gap-4 items-center">
-              <label htmlFor="items-per-page" className="text-sm font-medium">Items per page:</label>
-              <select id="items-per-page" onChange={handleItemsPerPageChange} value={itemsPerPage} className="border rounded-md p-1">
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={15}>15</option>
-              </select>
+
+          {filteredWorkspaces.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              No workspaces found matching your search.
             </div>
-            <div className="flex items-center">
-              <button onClick={handlePrevPage} disabled={currentPage === 1} className={`bg-gray-300 px-4 py-2 rounded-md flex items-center ${currentPage === 1 ? 'opacity-50' : ''}`}>
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <span className="m-4">Page {currentPage} of {totalPages}</span>
-              <button onClick={handleNextPage} disabled={currentPage === totalPages} className={`bg-gray-300 px-4 py-2 rounded-md flex items-center ${currentPage === totalPages ? 'opacity-50' : ''}`}>
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+          )}
+        </>
+      }
+    </Card >
+  );
+}
+
+function GlobalAuditTrail() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [actionFilter, setActionFilter] = useState<string>("all");
+  const [userFilter, setUserFilter] = useState<string>("all");
+  const [auditTrail] = useState(() => generateAuditTrail());
+
+  // Get unique actions and users for filters
+  const uniqueActions = Array.from(new Set(auditTrail.map(item => item.action)));
+  const uniqueUsers = Array.from(new Set(auditTrail.map(item => item.user)));
+
+  // Filter audit trail based on search and filters
+  const filteredAuditTrail = auditTrail.filter(item => {
+    const matchesSearch =
+      item.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.user.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.ipAddress.includes(searchQuery);
+
+    const matchesAction = actionFilter === "all" || item.action === actionFilter;
+    const matchesUser = userFilter === "all" || item.user === userFilter;
+
+    return matchesSearch && matchesAction && matchesUser;
+  });
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold">Global Audit Trail</h1>
+          <p className="text-muted-foreground">
+            Track all activities and changes across all workspaces
+          </p>
+        </div>
+        <Button variant="outline" className="gap-2">
+          <Download className="h-4 w-4" />
+          Export Audit Log
+        </Button>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="flex-1 min-w-[200px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search audit trail..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
           </div>
         </div>
+
+        <div className="flex gap-4">
+          <Select value={actionFilter} onValueChange={setActionFilter}>
+            <SelectTrigger className="w-[200px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Filter by action" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Actions</SelectItem>
+              {uniqueActions.map(action => (
+                <SelectItem key={action} value={action}>{action}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={userFilter} onValueChange={setUserFilter}>
+            <SelectTrigger className="w-[200px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Filter by user" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Users</SelectItem>
+              {uniqueUsers.map(user => (
+                <SelectItem key={user} value={user}>{user}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Audit Trail Table */}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Timestamp</TableHead>
+            <TableHead>Action</TableHead>
+            <TableHead>User</TableHead>
+            <TableHead>IP Address</TableHead>
+            <TableHead>Details</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredAuditTrail.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="whitespace-nowrap">
+                {new Date(item.timestamp).toLocaleString()}
+              </TableCell>
+              <TableCell>{item.action}</TableCell>
+              <TableCell>{item.user}</TableCell>
+              <TableCell className="font-mono">{item.ipAddress}</TableCell>
+              <TableCell className="max-w-xs truncate">
+                {item.details.changes ? (
+                  <span className="text-muted-foreground">
+                    Changed from "{item.details.changes.before}" to "{item.details.changes.after}"
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Resource ID: {item.details.resourceId}
+                  </span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+function GlobalApplicationLogs() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(false);
+  const [logs, setLogs] = useState<Log[]>([]);
+
+  useEffect(() => {
+    getLogs();
+  }, []);
+
+  const getLogs = async () => {
+    setLoading(true);
+    try {
+      axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/log`, { headers: { token: getCookie("token") } })
+        .then(res => {
+          return res.data.map((item: any, i: number) => {
+            return {
+              id: `log - ${i + 1} `,
+              timestamp: item.timestamp,
+              level: item.level.toUpperCase(),
+              message: item.message,
+              source: item.metadata.source,
+              details: {
+                metadata: {
+                  ...item.metadata
+                }
+              }
+            }
+          });
+        }).then(data => {
+          setLogs(data);
+        });
+    } catch (error) {
+      console.error("Error fetching logs:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const uniqueSources = (logs || []).map(log => log.source).filter((value, index, self) => self.indexOf(value) === index);
+
+  const filteredLogs = (logs || []).filter(log => {
+    const matchesSearch =
+      log.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.source.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesLevel = levelFilter === "all" || log.level === levelFilter;
+    const matchesSource = sourceFilter === "all" || log.source === sourceFilter;
+
+    return matchesSearch && matchesLevel && matchesSource;
+  });
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold">Application Logs</h1>
+          <p className="text-muted-foreground">
+            Monitor system logs and debug application issues across all workspaces
+          </p>
+        </div>
+        <Button variant="outline" className="gap-2">
+          <Download className="h-4 w-4" />
+          Export Logs
+        </Button>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="flex-1 min-w-[200px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search logs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <Select value={levelFilter} onValueChange={setLevelFilter}>
+            <SelectTrigger className="w-[160px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Log level" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Levels</SelectItem>
+              {Object.keys(LOG_LEVEL_COLORS).map(level => (
+                <SelectItem key={level} value={level}>{level}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-[200px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sources</SelectItem>
+              {uniqueSources.map(source => (
+                <SelectItem key={source as string} value={source as string}>{source}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {isLoading ?
+        <div className="text-center py-8 text-muted-foreground">
+          Loading workspaces...
+          <Spinner />
+        </div>
+        :
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Level</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Message</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredLogs.map((log) => (
+                <React.Fragment key={log.id as string}>
+                  <TableRow
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id as string)}
+                  >
+                    <TableCell className="whitespace-nowrap">
+                      {new Date(log.timestamp as string).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${LOG_LEVEL_COLORS[log.level as LogLevel]}`}>
+                        {LOG_LEVEL_ICONS[log.level as LogLevel]}
+                        {log.level}
+                      </span>
+                    </TableCell>
+                    <TableCell>{log.source}</TableCell>
+                    <TableCell className="max-w-xl truncate">
+                      {log.message}
+                    </TableCell>
+                  </TableRow>
+                  {expandedLog === log.id && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="bg-muted/30">
+                        <div className="p-4 space-y-4">
+                          <div>
+                            <h4 className="text-sm font-medium mb-2">Metadata</h4>
+                            <pre className="text-sm bg-muted p-2 rounded-md overflow-x-auto">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              ))}
+            </TableBody>
+          </Table>
+
+          {filteredLogs.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              No logs found matching your search.
+            </div>
+          )}
+        </>
+      }
+    </Card>
+  );
+}
+
+export default function Dashboard() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const { workspaces, setWorkspaces, user } = useAppContext();
+  const [loading, setLoading] = useState(false);
+
+  const filteredWorkspaces = workspaces.filter(item =>
+    item.id.toString().includes(searchQuery.toLowerCase()) ||
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  useEffect(() => {
+    if (workspaces.length === 0)
+      getWorkspaces();
+    }, []);
+
+  const getWorkspaces = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/workspaces`, { headers: { token: getCookie("token"), Authorization: getCookie("Authorization") } });
+      setWorkspaces(response.data.workspace);
+
+      if (response.data.workspace.length === 1)
+        router.push(`/workspace/${workspaces[0].id}`);
+    } catch (error) {
+      console.error("Error fetching workspaces:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+      <div className="container mx-auto py-8 space-y-8">
+        <Tabs defaultValue="workspaces" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
+            {user.role === "admin" && (
+              <TabsTrigger value="audit" className="gap-2">
+                <History className="h-4 w-4" />
+                Global Audit Trail
+              </TabsTrigger>
+            )}
+            {user.role === "admin" && (
+              <TabsTrigger value="logs" className="gap-2">
+                <Terminal className="h-4 w-4" />
+                Application Logs
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="workspaces">
+            <WorkspacesList
+              isLoading={loading}
+              filteredWorkspaces={filteredWorkspaces}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              router={router}
+            />
+          </TabsContent>
+
+          {user.role === "admin" && (
+            <TabsContent value="audit">
+              <GlobalAuditTrail />
+            </TabsContent>
+          )}
+
+          {user.role === "admin" && (
+            <TabsContent value="logs">
+              <GlobalApplicationLogs />
+            </TabsContent>
+          )}
+        </Tabs>
       </div>
     </div>
   );
